@@ -310,6 +310,61 @@ push-manifest:
 	@echo "pushed manifest $(IMAGE_TAG):"
 	@docker manifest inspect --insecure=$(INSECURE_REGISTRY) $(IMAGE_TAG)
 
+# Hybrid multi-arch build similar to ally's approach
+# PLATFORM can be set to multiple platforms, e.g., linux/amd64,linux/arm64
+# HYBRID_IMAGE_TAG can be set to override the default image tag
+# Example: make container-hybrid HYBRID_IMAGE_TAG=us-east1-docker.pkg.dev/spectro-images/dev/edge/velero:spectro-v1.17.0 PLATFORM=linux/amd64,linux/arm64
+#
+# Note: Cross-compilation for ARM64 requires proper QEMU/binfmt support in the buildx builder.
+# If ARM64 builds fail with "exec format error", ensure your system has ARM64 emulation enabled:
+#   docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+# Or build ARM64 images on an ARM64 system.
+PLATFORM ?= linux/amd64,linux/arm64
+HYBRID_IMAGE_TAG ?= $(IMAGE):$(VERSION)
+
+# Extract architectures from PLATFORM (e.g., "linux/amd64,linux/arm64" -> "amd64,arm64")
+HYBRID_ARCHS = $(shell echo "$(PLATFORM)" | sed 's/linux\///g')
+
+# Parse HYBRID_IMAGE_TAG to extract registry and version
+# Format: registry/path/image:tag -> registry=registry/path/image, version=tag
+HYBRID_REGISTRY = $(shell echo "$(HYBRID_IMAGE_TAG)" | cut -d: -f1 | sed 's|/$(BIN)$$||')
+HYBRID_VERSION = $(shell echo "$(HYBRID_IMAGE_TAG)" | cut -d: -f2)
+
+container-hybrid:
+ifneq ($(BUILDX_ENABLED), true)
+	$(error $(BUILDX_ERROR))
+endif
+
+	@echo "building hybrid container: $(HYBRID_IMAGE_TAG) for platforms: $(PLATFORM)"
+	@echo "architectures: $(HYBRID_ARCHS)"
+	@echo "registry: $(HYBRID_REGISTRY)"
+	@echo "version: $(HYBRID_VERSION)"
+
+	@# Ensure buildx builder exists and is bootstrapped with platform support
+	@if [ -z "$(BUILDX_INSTANCE)" ]; then \
+		echo "creating a buildx instance with platform support"; \
+		docker buildx rm velero-builder || true; \
+		docker buildx create --use --name=velero-builder --driver-opt network=host || \
+		(docker buildx use velero-builder || true); \
+		docker buildx inspect --bootstrap velero-builder || true; \
+	else \
+		echo "using a specified buildx instance $(BUILDX_INSTANCE)"; \
+		docker buildx use $(BUILDX_INSTANCE); \
+		docker buildx inspect --bootstrap $(BUILDX_INSTANCE) || true; \
+	fi
+
+	@# Use the existing container target with proper variables set
+	@# This uses Velero's proven cross-compilation approach which handles BUILDPLATFORM correctly
+	@# The container target will automatically create and push manifests when BUILD_OUTPUT_TYPE=registry
+	@REGISTRY=$(HYBRID_REGISTRY) \
+	VERSION=$(HYBRID_VERSION) \
+	BUILD_OUTPUT_TYPE=registry \
+	BUILD_ARCH=$(HYBRID_ARCHS) \
+	BUILDX_INSTANCE=velero-builder \
+	$(MAKE) --no-print-directory container
+
+	@echo "built and pushed hybrid container: $(HYBRID_IMAGE_TAG)"
+
 SKIP_TESTS ?=
 test: build-dirs
 ifneq ($(SKIP_TESTS), 1)
