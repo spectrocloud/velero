@@ -51,6 +51,14 @@ mkdir ${build_path}/restic
 git clone -b v${RESTIC_VERSION} https://github.com/restic/restic.git ${build_path}/restic
 pushd ${build_path}/restic
 git apply /go/src/github.com/vmware-tanzu/velero/hack/fix_restic_cve.txt
-go run build.go --goos "${GOOS}" --goarch "${GOARCH}" --goarm "${GOARM}" -o ${restic_bin}
+# Save target platform values before unsetting GOOS/GOARCH/GOARM
+# build.go must run on the build platform, but will cross-compile for the target
+TARGET_GOOS="${GOOS}"
+TARGET_GOARCH="${GOARCH}"
+TARGET_GOARM="${GOARM:-}"
+# Temporarily unset GOOS/GOARCH/GOARM so build.go runs on the build platform
+# build.go will use --goos/--goarch/--goarm flags to cross-compile for the target
+unset GOOS GOARCH GOARM
+go run build.go --goos "${TARGET_GOOS}" --goarch "${TARGET_GOARCH}" --goarm "${TARGET_GOARM}" -o ${restic_bin}
 chmod +x ${restic_bin}
 popd
