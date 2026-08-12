@@ -857,6 +857,12 @@ func (r *PodVolumeBackupReconciler) setupExposeParam(pvb *velerov1api.PodVolumeB
 			hostingPodTolerations = append(hostingPodTolerations, *v)
 		}
 	}
+	// The hosting pod is pinned to the source node via nodeName, so it must tolerate
+	// any custom taints on that node.
+	hostingPodTolerations = append(hostingPodTolerations,
+		corev1api.Toleration{Operator: corev1api.TolerationOpExists, Effect: corev1api.TaintEffectNoSchedule},
+		corev1api.Toleration{Operator: corev1api.TolerationOpExists, Effect: corev1api.TaintEffectNoExecute},
+	)
 
 	return exposer.PodVolumeExposeParam{
 		Type:                  exposer.PodVolumeExposeTypeBackup,

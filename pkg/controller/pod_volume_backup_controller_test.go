@@ -1305,6 +1305,12 @@ func TestPodVolumeBackupSetupExposeParam(t *testing.T) {
 			// Labels/Annotations
 			assert.Equal(t, tt.want.labels, got.HostingPodLabels)
 			assert.Equal(t, tt.want.annotations, got.HostingPodAnnotations)
+
+			// Wildcard tolerations for the node-pinned hosting pod
+			assert.Equal(t, []corev1api.Toleration{
+				{Operator: corev1api.TolerationOpExists, Effect: corev1api.TaintEffectNoSchedule},
+				{Operator: corev1api.TolerationOpExists, Effect: corev1api.TaintEffectNoExecute},
+			}, got.HostingPodTolerations)
 		})
 	}
 }
